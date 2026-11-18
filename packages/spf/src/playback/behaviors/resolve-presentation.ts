@@ -1,0 +1,167 @@
+import { defineBehavior } from '../../core/composition/define-behavior';
+import type { Reactor } from '../../core/reactors/create-machine-reactor';
+import { createMachineReactor } from '../../core/reactors/create-machine-reactor';
+import { computed, type ReadonlySignal, type Signal } from '../../core/signals/primitives';
+import { SVTA_PRIMARY_MANIFEST_LOAD_ERROR } from '../../media/errors';
+import { isResolvedPresentation, type MaybeResolvedPresentation, type Presentation } from '../../media/types';
+import { DEFAULT_PRELOAD, isBlockingPreload, type StandardPreload } from '../../media/utils/preload';
+import { credentialsFetch, type RequestCredentialsConfig } from '../../network/credentials-fetch';
+import { fetchResolvable as defaultFetchResolvable, getResponseText } from '../../network/fetch';
+import { type ErrorEmitterState, emitError } from './collect-errors';
+
+export interface PresentationState {
+  /**
+   * The presentation being played. A caller writes `{ url }`; `resolvePresentation` parses the manifest and populates
+   * the rest.
+   */
+  presentation?: MaybeResolvedPresentation;
+  /**
+   * The preload hint the engine honors. `syncPreload` keeps it in step with the element's authored `preload` attribute
+   * (both ways) and backfills its `defaultPreload` when nothing supplied one; `resolvePresentation` holds manifest
+   * resolution while it is `'none'` unless `loadActivated`, and the `loadXSegments` dispatchers choose their load mode
+   * from it.
+   */
+  preload?: 'auto' | 'metadata' | 'none' | undefined;
+  /** True once a preload-overriding event has fired for the current source — enables resolution regardless of preload. */
+  loadActivated?: boolean;
+}
+
+/**
+ * Parses a manifest body into a resolved `Presentation`. Receives the presentation as the caller wrote it, at least `{
+ * url }`, so the parser can resolve references against it and keep what the caller supplied.
+ */
+export type ParsePresentation = (text: string, presentation: MaybeResolvedPresentation) => Presentation;
+
+export interface ResolvePresentationConfig extends RequestCredentialsConfig {
+  /**
+   * Parses a manifest body into a resolved `Presentation`. **Required** — the behavior is format-neutral and the
+   * composing engine supplies its own parser (HLS, DASH, etc.).
+   */
+  parsePresentation: ParsePresentation;
+  /**
+   * Fallback used when `state.preload` is unset (undefined / empty) for the resolution-gate decision. Defaults to
+   * `'metadata'`, matching `syncPreload`'s own `defaultPreload`.
+   */
+  defaultPreload?: StandardPreload;
+}
+
+/**
+ * The resolver's phase, derived from state: `'preconditions-unmet'` until `presentation.url` is set; `'idle'` while the
+ * preload hint holds resolution back and nothing has activated loading; `'resolving'` while the manifest is fetched and
+ * parsed; `'resolved'` once `presentation` carries the parsed result.
+ */
+export type ResolvePresentationState = 'preconditions-unmet' | 'idle' | 'resolving' | 'resolved';
+
+function deriveState(
+  presentation: MaybeResolvedPresentation | undefined,
+  preload: PresentationState['preload'],
+  loadActivated: boolean | undefined,
+  defaultPreload: StandardPreload
+): ResolvePresentationState {
+  if (!presentation?.url) return 'preconditions-unmet';
+
+  if (isResolvedPresentation(presentation)) return 'resolved';
+
+  const gateOpen = !!loadActivated || !isBlockingPreload(preload, defaultPreload);
+
+  return gateOpen ? 'resolving' : 'idle';
+}
+
+// A type alias rather than an interface: the signal-map bound needs the implicit index signature only an alias has.
+type ResolvePresentationStateMap = {
+  presentation: Signal<PresentationState['presentation']>;
+  preload: ReadonlySignal<PresentationState['preload']>;
+  loadActivated: ReadonlySignal<PresentationState['loadActivated']>;
+};
+
+function resolvePresentationSetup({
+  state,
+  config,
+}: {
+  // Widened with the optional `errors` signal, as `resolveTrack` is: a failed
+  // load reports through it and no-ops when `collectErrors` isn't composed.
+  state: ResolvePresentationStateMap & ErrorEmitterState;
+  config: ResolvePresentationConfig;
+}): Reactor<ResolvePresentationState | 'destroying' | 'destroyed'> {
+  const { parsePresentation } = config;
+  const defaultPreload: StandardPreload = config.defaultPreload ?? DEFAULT_PRELOAD;
+  const fetchResolvable = credentialsFetch(defaultFetchResolvable, config.requestCredentials);
+
+  const derivedStateSignal = computed(() =>
+    deriveState(state.presentation.get(), state.preload.get(), state.loadActivated.get(), defaultPreload)
+  );
+
+  return createMachineReactor<ResolvePresentationState>({
+    initial: 'preconditions-unmet',
+    monitor: () => derivedStateSignal.get(),
+    states: {
+      'preconditions-unmet': {},
+      idle: {},
+      resolving: {
+        effects: () => {
+          const presentation = state.presentation.get();
+          // Disposed effects reorder the shared watcher, so this can run before
+          // the monitor leaves the state; never fetch a cleared or resolved one.
+          if (!presentation?.url || isResolvedPresentation(presentation)) return;
+
+          const ac = new AbortController();
+
+          fetchResolvable(presentation, { signal: ac.signal })
+            .then((response) => getResponseText(response))
+            .then((text) => {
+              if (ac.signal.aborted || state.presentation.get() !== presentation) return;
+
+              const parsed = parsePresentation(text, presentation);
+
+              state.presentation.set(parsed);
+            })
+            .catch((error) => {
+              if (error instanceof Error && error.name === 'AbortError') return;
+
+              // Fetch and parse failures alike: either way there is no primary manifest.
+              emitError(state, {
+                code: SVTA_PRIMARY_MANIFEST_LOAD_ERROR,
+                data: { url: presentation.url, cause: error },
+              });
+            });
+
+          return ac;
+        },
+      },
+      resolved: {},
+    },
+  });
+}
+
+/**
+ * **Resolve an unresolved presentation by fetching and parsing its manifest.**
+ *
+ * Reads `state.presentation`; when it holds `{ url }` (unresolved) and the preload / load-activation gate is met,
+ * fetches the manifest, parses it via the **required** `config.parsePresentation`, and writes the resolved
+ * `Presentation` back to the same signal. The behavior is format-neutral: the composing engine wires in its parser
+ * (e.g. the HLS engine supplies the multivariant-playlist parser).
+ *
+ * Source-identity-driven, expressed as a 4-state machine:
+ *
+ *     'preconditions-unmet' → 'idle' → 'resolving' → 'resolved'
+ *
+ * - `'preconditions-unmet'`: no presentation, or presentation has no URL.
+ * - `'idle'`: URL present, unresolved, gate unmet (blocking preload + no load-activation). Waits for the gate to open.
+ * - `'resolving'`: URL present, unresolved, gate met. A presentation-tracking effect starts the fetch and returns the
+ *   AbortController — the reactor calls `.abort()` on presentation replacement or state exit, so source change /
+ *   gate-close / destroy all cancel cleanly. Late results commit only while the input presentation is still current.
+ * - `'resolved'`: `state.presentation` holds a resolved `Presentation`.
+ *
+ * Gate semantics: `state.preload` (or `config.defaultPreload`, default `'metadata'`, when state.preload is unset)
+ * blocks resolution when its value is `'none'` (see `isBlockingPreload` in `media/utils/preload`).
+ * `state.loadActivated` is an override — true bypasses the preload gate entirely.
+ *
+ * Multi-writer with the engine adapter, which writes the initial unresolved `{ url }` to `state.presentation` from src
+ * input. Different domains (config-input vs. derived state via fetch) — legitimate multi-writer.
+ */
+export const resolvePresentation = defineBehavior({
+  stateKeys: ['presentation', 'preload', 'loadActivated'],
+  contextKeys: [],
+  setup: (deps: { state: ResolvePresentationStateMap; config: ResolvePresentationConfig }) =>
+    resolvePresentationSetup(deps),
+});

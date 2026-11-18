@@ -1,0 +1,75 @@
+import * as $ from '@videojs/core/vjsc';
+import type { PropsOf } from 'vjsc/components';
+
+import { AirPlayButton } from '../../../../components/buttons/airplay-button';
+import { ButtonTooltip } from '../../../../components/buttons/button-tooltip';
+import { CaptionsButton } from '../../../../components/buttons/captions-button';
+import { CastButton } from '../../../../components/buttons/cast-button';
+import { FullscreenButton } from '../../../../components/buttons/fullscreen-button';
+import { PiPButton } from '../../../../components/buttons/pip-button';
+import { PlayButton } from '../../../../components/buttons/play-button';
+import { SeekButton } from '../../../../components/buttons/seek-button';
+import { VolumePopover } from '../../../../components/menus/volume-popover';
+import { TimeSlider } from '../../../../components/sliders/time-slider';
+import timeStyles from '../../../../styles/display/time.styles';
+import controlsStyles from '../../../../styles/layout/controls.styles';
+import { VideoSettingsMenu } from '../../../shared/video/menus/settings-menu';
+import styles from './controls.styles';
+
+export interface DefaultVideoControlsProps {
+  renderThumbnail?: PropsOf<typeof TimeSlider>['renderThumbnail'];
+}
+
+export function DefaultVideoControls({ renderThumbnail }: DefaultVideoControlsProps = {}) {
+  return (
+    <$.Controls.Root>
+      <$.BufferingIndicator className={controlsStyles.centerBuffering}>
+        <$.Controls.Group className={controlsStyles.center}>
+          <SeekButton className={[controlsStyles.centerButton, controlsStyles.centerSeek]} seconds={-10} />
+          <PlayButton
+            className={[controlsStyles.centerButton, controlsStyles.centerPlay]}
+            iconClassName={controlsStyles.centerPlayIcon}
+          />
+          <SeekButton className={[controlsStyles.centerButton, controlsStyles.centerSeek]} seconds={10} />
+        </$.Controls.Group>
+      </$.BufferingIndicator>
+      <$.Controls.Backdrop className={controlsStyles.backdrop} />
+      <$.Controls.Content className={[controlsStyles.root, controlsStyles.content]}>
+        <$.Tooltip.Provider>
+          <$.Controls.Group className={[controlsStyles.primary, styles.compactPrimary]}>
+            <ButtonTooltip side="top">
+              <PlayButton />
+            </ButtonTooltip>
+            <VolumePopover className={styles.volumeButton} />
+
+            <$.Controls.Group className={styles.timeSliderGroup}>
+              <$.Time.Value className={[timeStyles.value, styles.currentTimeValue]} type="current" />
+              <TimeSlider className={styles.timeSlider} renderThumbnail={renderThumbnail} />
+              <$.Time.Value className={[timeStyles.toggle, styles.remainingTimeValue]} type="remaining" toggle />
+            </$.Controls.Group>
+
+            <ButtonTooltip side="top">
+              <CaptionsButton className={controlsStyles.captionsButton} />
+            </ButtonTooltip>
+            <VideoSettingsMenu className={styles.settingsButton} />
+          </$.Controls.Group>
+
+          <$.Controls.Group className={[controlsStyles.secondary, styles.topControls]}>
+            <ButtonTooltip side="top">
+              <CastButton />
+            </ButtonTooltip>
+            <ButtonTooltip side="top">
+              <AirPlayButton />
+            </ButtonTooltip>
+            <ButtonTooltip side="top">
+              <PiPButton />
+            </ButtonTooltip>
+            <ButtonTooltip side="top">
+              <FullscreenButton />
+            </ButtonTooltip>
+          </$.Controls.Group>
+        </$.Tooltip.Provider>
+      </$.Controls.Content>
+    </$.Controls.Root>
+  );
+}

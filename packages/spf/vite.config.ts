@@ -1,0 +1,258 @@
+import { defineConfig } from 'vite-plus';
+import type { UserConfig as PackUserConfig } from 'vite-plus/pack';
+import { playwright } from 'vite-plus/test/browser-playwright';
+
+import { type PackageBuildMode, packageBuildConfig, packageBuildModes } from '../../build/pack.ts';
+import { cachedTaskInputs, packageTestTask, workspaceTaskDependencies } from '../../build/task.ts';
+
+// Browser-mode projects run chromium by default. SPF_TEST_WEBKIT=1 adds a webkit instance and SPF_TEST_FIREFOX=1 a
+// firefox one. Webkit here is Playwright WebKit, not Safari. A factory rather than a shared array: vitest derives
+// nested-project names from the instance objects, so one array reused across projects collides.
+const browserInstances = () => [
+  { browser: 'chromium' as const },
+  ...(process.env.SPF_TEST_WEBKIT ? [{ browser: 'webkit' as const }] : []),
+  ...(process.env.SPF_TEST_FIREFOX ? [{ browser: 'firefox' as const }] : []),
+];
+
+const createPackConfig = (mode: PackageBuildMode): PackUserConfig => ({
+  ...packageBuildConfig(mode, 'neutral'),
+  entry: {
+    index: 'src/index.ts',
+    dom: 'src/dom.ts',
+    hls: 'src/hls.ts',
+    'engines/hls-video': 'src/playback/engines/hls-video.ts',
+    'engines/hls-audio': 'src/playback/engines/hls-audio.ts',
+    'engines/hls-background-video': 'src/playback/engines/hls-background-video.ts',
+    'engines/hls-video-mpeg-ts': 'src/playback/engines/hls-video-mpeg-ts.ts',
+    'engines/hls-audio-mpeg-ts': 'src/playback/engines/hls-audio-mpeg-ts.ts',
+    'engines/hls-background-video-mpeg-ts': 'src/playback/engines/hls-background-video-mpeg-ts.ts',
+    'features/airplay': 'src/playback/features/airplay.ts',
+    'features/airplay-fairplay': 'src/playback/features/airplay-fairplay.ts',
+    'features/audio': 'src/playback/features/audio.ts',
+    'features/background-video': 'src/playback/features/background-video.ts',
+    'features/calculate-duration': 'src/playback/features/calculate-duration.ts',
+    'features/chapters': 'src/playback/features/chapters.ts',
+    'features/current-time': 'src/playback/features/current-time.ts',
+    'features/drm': 'src/playback/features/drm.ts',
+    'features/end-stall-recovery': 'src/playback/features/end-stall-recovery.ts',
+    'features/error': 'src/playback/features/error.ts',
+    'features/hls-loading': 'src/playback/features/hls-loading.ts',
+    'features/initial-load': 'src/playback/features/initial-load.ts',
+    'features/live': 'src/playback/features/live.ts',
+    'features/media-source': 'src/playback/features/media-source.ts',
+    'features/monitor-player-size': 'src/playback/features/monitor-player-size.ts',
+    'features/mpeg-ts-audio-transmux': 'src/playback/features/mpeg-ts-audio-transmux.ts',
+    'features/mpeg-ts-transmux': 'src/playback/features/mpeg-ts-transmux.ts',
+    'features/multi-cdn': 'src/playback/features/multi-cdn.ts',
+    'features/shift-text-timestamps': 'src/playback/features/shift-text-timestamps.ts',
+    'features/shift-timestamps': 'src/playback/features/shift-timestamps.ts',
+    'features/start-position': 'src/playback/features/start-position.ts',
+    'features/text-tracks': 'src/playback/features/text-tracks.ts',
+    'features/video': 'src/playback/features/video.ts',
+    'behaviors/calculate-presentation-duration': 'src/playback/behaviors/calculate-presentation-duration.ts',
+    'behaviors/collect-errors': 'src/playback/behaviors/collect-errors.ts',
+    'behaviors/derive-cdn-priority': 'src/playback/behaviors/derive-cdn-priority.ts',
+    'behaviors/dom/airplay': 'src/playback/behaviors/dom/airplay.ts',
+    'behaviors/dom/apply-start-position': 'src/playback/behaviors/dom/apply-start-position.ts',
+    'behaviors/dom/end-of-stream': 'src/playback/behaviors/dom/end-of-stream.ts',
+    'behaviors/dom/exchange-licenses': 'src/playback/behaviors/dom/exchange-licenses.ts',
+    'behaviors/dom/load-chapters': 'src/playback/behaviors/dom/load-chapters.ts',
+    'behaviors/dom/load-segments': 'src/playback/behaviors/dom/load-segments.ts',
+    'behaviors/dom/recover-end-stall': 'src/playback/behaviors/dom/recover-end-stall.ts',
+    'behaviors/dom/seek-to-live-edge': 'src/playback/behaviors/dom/seek-to-live-edge.ts',
+    'behaviors/dom/setup-airplay-fairplay': 'src/playback/behaviors/dom/setup-airplay-fairplay.ts',
+    'behaviors/dom/setup-buffer-actors': 'src/playback/behaviors/dom/setup-buffer-actors.ts',
+    'behaviors/dom/setup-media-keys': 'src/playback/behaviors/dom/setup-media-keys.ts',
+    'behaviors/dom/setup-mediasource': 'src/playback/behaviors/dom/setup-mediasource.ts',
+    'behaviors/dom/setup-text-track-actors': 'src/playback/behaviors/dom/setup-text-track-actors.ts',
+    'behaviors/dom/sync-live-seekable-range': 'src/playback/behaviors/dom/sync-live-seekable-range.ts',
+    'behaviors/dom/sync-text-tracks': 'src/playback/behaviors/dom/sync-text-tracks.ts',
+    'behaviors/dom/track-current-time': 'src/playback/behaviors/dom/track-current-time.ts',
+    'behaviors/dom/track-load-triggers': 'src/playback/behaviors/dom/track-load-triggers.ts',
+    'behaviors/dom/track-playback-rate': 'src/playback/behaviors/dom/track-playback-rate.ts',
+    'behaviors/dom/track-player-resolution': 'src/playback/behaviors/dom/track-player-resolution.ts',
+    'behaviors/dom/track-screen-resolution': 'src/playback/behaviors/dom/track-screen-resolution.ts',
+    'behaviors/dom/update-mediasource-duration': 'src/playback/behaviors/dom/update-mediasource-duration.ts',
+    'behaviors/establish-start-media-time': 'src/playback/behaviors/establish-start-media-time.ts',
+    'behaviors/resolve-presentation': 'src/playback/behaviors/resolve-presentation.ts',
+    'behaviors/resolve-track': 'src/playback/behaviors/resolve-track.ts',
+    'behaviors/select-tracks': 'src/playback/behaviors/select-tracks.ts',
+    'behaviors/setup-failover-monitor': 'src/playback/behaviors/setup-failover-monitor.ts',
+    'behaviors/sync-preload': 'src/playback/behaviors/sync-preload.ts',
+    'behaviors/track-switching': 'src/playback/behaviors/track-switching.ts',
+    'media-tracks': 'src/media/media-tracks/index.ts',
+    'adapters/hls-audio': 'src/playback/adapters/hls-audio/index.ts',
+    'adapters/hls-background-video': 'src/playback/adapters/hls-background-video/index.ts',
+    'adapters/hls-video': 'src/playback/adapters/hls-video/index.ts',
+    'adapters/hls-video-mpeg-ts': 'src/playback/adapters/hls-video-mpeg-ts/index.ts',
+    'adapters/hls-audio-mpeg-ts': 'src/playback/adapters/hls-audio-mpeg-ts/index.ts',
+    'adapters/hls-background-video-mpeg-ts': 'src/playback/adapters/hls-background-video-mpeg-ts/index.ts',
+  },
+});
+
+export default defineConfig({
+  run: {
+    tasks: {
+      build: {
+        command: 'vp pack',
+        dependsOn: workspaceTaskDependencies(),
+        cache: {
+          input: cachedTaskInputs,
+          output: ['dist/**'],
+        },
+      },
+      'test:ci': packageTestTask(),
+    },
+  },
+  test: {
+    // Vitest v4 compatibility: preserve mock call history.
+    // Remove after tests no longer rely on calls from setup or earlier tests.
+    // https://viteplus.dev/guide/vitest-v5#remove-unneeded-compatibility-settings
+    // https://vitest.dev/guide/migration/#clearmocks-is-enabled-by-default
+    clearMocks: false,
+    // Vitest v4 compatibility: keep separate Vite servers for inline projects.
+    // Remove when plugins and config hooks can run once for shared projects.
+    // https://viteplus.dev/guide/vitest-v5#remove-unneeded-compatibility-settings
+    // https://vitest.dev/guide/migration/#inline-projects-share-the-vite-server-by-default
+    sharedViteServer: false,
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'html', 'lcov'],
+      include: ['src/**/*.ts'],
+      exclude: ['src/**/*.test.ts', 'src/**/*.d.ts'],
+      thresholds: {
+        lines: 80,
+        functions: 80,
+        branches: 80,
+        statements: 80,
+      },
+    },
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'core',
+          include: ['src/core/**/*.test.ts'],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'media',
+          include: ['src/media/**/*.test.ts'],
+          exclude: ['src/media/dom/**'],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'network',
+          include: ['src/network/**/*.test.ts'],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'behaviors',
+          include: [
+            'src/playback/behaviors/**/*.test.ts',
+            'src/playback/actors/**/*.test.ts',
+            'src/playback/primitives/**/*.test.ts',
+          ],
+          exclude: ['src/playback/behaviors/dom/**', 'src/playback/actors/dom/**'],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'dom',
+          // All DOM-bound tests across the package — MSE/VTT primitives,
+          // DOM-bound behaviors, DOM-bound actor factories.
+          include: [
+            'src/media/dom/**/*.test.ts',
+            'src/playback/behaviors/dom/**/*.test.ts',
+            'src/playback/actors/dom/**/*.test.ts',
+          ],
+          browser: {
+            locators: {
+              // Vitest v4 compatibility: keep partial, case-insensitive locator matching.
+              // Remove after updating locators for full, case-sensitive matches.
+              // https://viteplus.dev/guide/vitest-v5#remove-unneeded-compatibility-settings
+              // https://vitest.dev/guide/migration/#locators-are-strict-by-default
+              exact: false,
+            },
+            enabled: true,
+            headless: true,
+            provider: playwright(),
+            screenshotFailures: false,
+            instances: browserInstances(),
+          },
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'playback-engines',
+          include: ['src/playback/engines/**/*.test.ts'],
+          browser: {
+            locators: {
+              // Vitest v4 compatibility: keep partial, case-insensitive locator matching.
+              // Remove after updating locators for full, case-sensitive matches.
+              // https://viteplus.dev/guide/vitest-v5#remove-unneeded-compatibility-settings
+              // https://vitest.dev/guide/migration/#locators-are-strict-by-default
+              exact: false,
+            },
+            enabled: true,
+            headless: true,
+            provider: playwright(),
+            screenshotFailures: false,
+            instances: browserInstances(),
+          },
+        },
+      },
+      {
+        extends: true,
+        test: {
+          // The Medias over the engines. Browser-bound like the engines they
+          // drive: they construct a real composition, which reaches MediaSource.
+          name: 'playback-adapters',
+          include: ['src/playback/adapters/**/*.test.ts'],
+          browser: {
+            locators: {
+              // Vitest v4 compatibility: keep partial, case-insensitive locator matching.
+              // Remove after updating locators for full, case-sensitive matches.
+              // https://viteplus.dev/guide/vitest-v5#remove-unneeded-compatibility-settings
+              // https://vitest.dev/guide/migration/#locators-are-strict-by-default
+              exact: false,
+            },
+            enabled: true,
+            headless: true,
+            provider: playwright(),
+            screenshotFailures: false,
+            instances: browserInstances(),
+          },
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'scripts',
+          include: ['scripts/**/*.test.ts'],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'types',
+          include: [],
+          typecheck: {
+            enabled: true,
+            checker: 'tsgo',
+            include: ['src/**/*.test-d.ts'],
+          },
+        },
+      },
+    ],
+  },
+  pack: packageBuildModes.map(createPackConfig),
+});

@@ -1,0 +1,230 @@
+import { isString } from '@videojs/utils/predicate';
+
+import { parseCloudflareSource } from './cloudflare';
+import { parseDailymotionSource } from './dailymotion';
+import { parseMixcloudSource } from './mixcloud';
+import { parseSoundCloudSource } from './soundcloud';
+import { parseSpotifySource } from './spotify';
+import { parseTikTokSource } from './tiktok';
+import { parseTwitchSource } from './twitch';
+import { parseVimeoSource } from './vimeo';
+import { parseWistiaMediaId } from './wistia';
+import { parseYouTubeSource } from './youtube';
+
+/** A type of adapter {@link resolveAdapterType} recognizes. Each type is played by a different media component. */
+export type AdapterType =
+  | 'youtube'
+  | 'vimeo'
+  | 'wistia'
+  | 'mux'
+  | 'cloudflare'
+  | 'spotify'
+  | 'soundcloud'
+  | 'mixcloud'
+  | 'tiktok'
+  | 'twitch'
+  | 'dailymotion'
+  | 'playerjs'
+  | 'hls'
+  | 'dash'
+  | 'video'
+  | 'audio';
+
+/**
+ * Resolve which type of adapter plays a source URL, so you can render the media component for it and pass it the same
+ * `src`. Recognizes YouTube, Vimeo, Wistia, Mux, Cloudflare Stream, Spotify, SoundCloud, Mixcloud, TikTok, Twitch, and
+ * Dailymotion URLs; player.js embeds marked with a `playerjs` query parameter; HLS and DASH manifests; and video and
+ * audio files, by MIME type when you pass one and by file extension otherwise.
+ *
+ * Returns `null` for anything else, including bare ids: an 11-character YouTube id and a 10-character Wistia id look
+ * alike, so services are only matched on URLs, `spotify:` URIs, and `youtube/<id>` and `vimeo/<id>` shorthands.
+ *
+ * `hls` covers every HLS adapter, and `dash` every DASH adapter. Choosing between them is up to you.
+ *
+ * @param src - The source URL, or a `youtube/<id>` or `vimeo/<id>` shorthand.
+ * @param type - The source's MIME type, when known. It takes precedence over the file extension, so manifests and files
+ *   without one can still be resolved. Parameters such as `codecs` are ignored.
+ * @public
+ */
+export function resolveAdapterType(src: string, type?: string): AdapterType | null {
+  const source = src.trim();
+  if (!source) return null;
+
+  return fromService(source) ?? adapterTypeForMimeType(type) ?? adapterTypeForMimeType(resolveMimeType(source));
+}
+
+/**
+ * Resolve a source's MIME type from its file extension, such as `application/x-mpegurl` for `.m3u8` or `video/mp4` for
+ * `.mp4`. The query string and hash are ignored.
+ *
+ * Returns `null` when the URL has no extension or one that isn't an HLS or DASH manifest or a common video or audio
+ * file.
+ *
+ * @param src - The source URL.
+ * @public
+ */
+export function resolveMimeType(src: string): string | null {
+  const extension = EXTENSION.exec(src.trim())?.[1]!.toLowerCase();
+
+  return (extension && MIME_TYPES.get(extension)) || null;
+}
+
+/** A service {@link matchServiceHost} recognizes by host or marker. */
+type ServiceType = Exclude<AdapterType, 'hls' | 'dash' | 'video' | 'audio'>;
+
+/** A service recognized by its host. */
+type HostedServiceType = Exclude<ServiceType, 'playerjs'>;
+
+/**
+ * The query parameter that marks a URL as a player.js embed. player.js is a protocol any host can speak, so the URL has
+ * to say so; the player.js media removes the parameter before loading the embed.
+ *
+ * @internal
+ */
+export const PLAYERJS_PARAM = 'playerjs';
+
+// Each service's parser confirms the URL names something its media can play.
+const SERVICE_PARSERS: Record<ServiceType, (src: string) => unknown> = {
+  youtube: parseYouTubeSource,
+  vimeo: parseVimeoSource,
+  wistia: parseWistiaMediaId,
+  mux: () => true,
+  cloudflare: parseCloudflareSource,
+  spotify: parseSpotifySource,
+  soundcloud: parseSoundCloudSource,
+  mixcloud: parseMixcloudSource,
+  tiktok: parseTikTokSource,
+  twitch: parseTwitchSource,
+  dailymotion: parseDailymotionSource,
+  // The marker is the author's word that the embed speaks player.js; only the embed can confirm it.
+  playerjs: () => true,
+};
+
+function fromService(src: string): AdapterType | null {
+  // Shorthands go through the same parsers the YouTube and Vimeo media use, so the media accepts what matches here.
+  if (src.startsWith('youtube/')) return parseYouTubeSource(src) ? 'youtube' : null;
+
+  if (src.startsWith('vimeo/')) return parseVimeoSource(src) ? 'vimeo' : null;
+
+  if (SPOTIFY_URI.test(src)) return parseSpotifySource(src) ? 'spotify' : null;
+
+  const url = parseSourceUrl(src);
+  const service = url && matchServiceHost(url);
+
+  return service && SERVICE_PARSERS[service](src) ? service : null;
+}
+
+/**
+ * Match a source URL to a service by host alone, without parsing it for an id. A Mux URL must also have a stream path.
+ * A `playerjs` query parameter marks a player.js embed on any host, ahead of the host itself, and a `wvideo` parameter
+ * marks a Wistia popover on any other page.
+ *
+ * @internal
+ */
+export function matchServiceHost({ hostname, pathname, searchParams }: URL): ServiceType | null {
+  if (searchParams.has(PLAYERJS_PARAM)) return 'playerjs';
+
+  const hostPath = hostname + pathname;
+
+  return (
+    // SAFETY: `SERVICE_HOSTS` has exactly one key per hosted service.
+    (Object.keys(SERVICE_HOSTS) as HostedServiceType[]).find((service) => SERVICE_HOSTS[service].test(hostPath)) ??
+    (searchParams.has('wvideo') ? 'wistia' : null)
+  );
+}
+
+/**
+ * Match a structured source to the service whose media plays it by an id alone, such as a Mux `playbackId`, without a
+ * URL. An empty id doesn't count.
+ *
+ * @internal
+ */
+export function matchServiceId(source: Readonly<Record<string, unknown>>): HostedServiceType | null {
+  for (const [service, field] of SERVICE_ID_FIELDS) {
+    const id = source[field];
+    if (isString(id) && id) return service;
+  }
+
+  return null;
+}
+
+/**
+ * Map a MIME type to the adapter type that plays it: `hls`, `dash`, `video`, or `audio`. Parameters such as `codecs`
+ * are ignored.
+ *
+ * @internal
+ */
+export function adapterTypeForMimeType(type: string | null | undefined): AdapterType | null {
+  // Parameters such as `; codecs=…` don't change which media plays the type.
+  const mimeType = (type ?? '').split(';', 1)[0]!.trim().toLowerCase();
+  if (HLS_TYPE.test(mimeType)) return 'hls';
+
+  if (mimeType === DASH_TYPE) return 'dash';
+
+  // SAFETY: `FILE_TYPE` captures only `video` or `audio`.
+  return (FILE_TYPE.exec(mimeType)?.[1] as 'video' | 'audio' | undefined) ?? null;
+}
+
+/**
+ * Parse an absolute URL, or a host-first one such as `youtu.be/<id>`. Paths and bare ids don't parse.
+ *
+ * @internal
+ */
+export function parseSourceUrl(src: string): URL | null {
+  try {
+    return new URL(HOST_FIRST.test(src) ? `https://${src}` : src);
+  } catch {
+    return null;
+  }
+}
+
+/** @internal */
+export const SPOTIFY_URI = /^spotify:/i;
+// A dotted host followed by a path, like `youtu.be/<id>`, as opposed to a relative path like `media/video.mp4`.
+const HOST_FIRST = /^[\w-]+(\.[\w-]+)+\//;
+// The extension at the end of the path, before any query string or hash.
+const EXTENSION = /^[^?#]*\.(\w+)([?#]|$)/;
+
+// Each pattern matches `hostname + pathname`, in order of precedence.
+const SERVICE_HOSTS = {
+  youtube: /^((www|m|music)\.)?youtube(-nocookie)?\.com\/|^youtu\.be\//,
+  vimeo: /^((www|player)\.)?vimeo\.com\//,
+  wistia: /^([^/]+\.)?(wistia\.(com|net)|wi\.st)\//,
+  // `player.mux.com` page URLs aren't matched: Mux media plays stream URLs, with or without the `.m3u8` extension.
+  mux: /^stream\.mux\.com\/[^/.]+(\.m3u8)?$/,
+  cloudflare: /^([^/]+\.)?(cloudflarestream\.com|videodelivery\.net)\//,
+  spotify: /^open\.spotify\.com\//,
+  soundcloud: /^([^/]+\.)?soundcloud\.com\//,
+  mixcloud: /^([^/]+\.)?mixcloud\.com\//,
+  // `vm.tiktok.com` short links carry an opaque code instead of the numeric video id.
+  tiktok: /^(www\.)?tiktok\.com\//,
+  // `clips.twitch.tv` is a different embed the Twitch media can't play.
+  twitch: /^((www|go|player)\.)?twitch\.tv\//,
+  dailymotion: /^((www|geo)\.)?dailymotion\.com\/|^dai\.ly\//,
+} satisfies Record<HostedServiceType, RegExp>;
+
+// The field of a structured `source` that names the media by an id alone, in order of precedence. Each mirrors the
+// adapter's own source type, which this package can't import: `MuxSourceBase` and `WistiaSource`.
+const SERVICE_ID_FIELDS: ReadonlyArray<readonly [HostedServiceType, string]> = [
+  ['mux', 'playbackId'],
+  ['wistia', 'mediaId'],
+];
+
+const HLS_TYPE = /^(application|audio)\/(vnd\.apple\.|x-)?mpegurl$/;
+const DASH_TYPE = 'application/dash+xml';
+const FILE_TYPE = /^(video|audio)\//;
+
+const MIME_TYPES: ReadonlyMap<string, string> = new Map([
+  ['m3u8', 'application/x-mpegurl'],
+  ['mpd', DASH_TYPE],
+  ['mp4', 'video/mp4'],
+  ['webm', 'video/webm'],
+  ['mov', 'video/quicktime'],
+  ['ogv', 'video/ogg'],
+  ['mp3', 'audio/mpeg'],
+  ['m4a', 'audio/mp4'],
+  ['wav', 'audio/wav'],
+  ['ogg', 'audio/ogg'],
+  ['flac', 'audio/flac'],
+  ['aac', 'audio/aac'],
+]);

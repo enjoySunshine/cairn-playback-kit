@@ -1,0 +1,270 @@
+import { existsSync, readdirSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+import { describe, expect, it } from 'vite-plus/test';
+
+import {
+  hasNoSkinChoice,
+  hasSkinChoice,
+  hasTailwindSkin,
+  landingSource,
+  MEDIA,
+  MEDIA_IDS,
+  mediaSources,
+} from '../media';
+import {
+  DAILYMOTION_SOURCE_IDS,
+  DASH_SOURCE_IDS,
+  DEFAULT_BACKGROUND_SOURCE,
+  DEFAULT_DAILYMOTION_SOURCE,
+  DEFAULT_DASH_SOURCE,
+  DEFAULT_MIXCLOUD_SOURCE,
+  DEFAULT_PLAYERJS_SOURCE,
+  DEFAULT_SOUNDCLOUD_SOURCE,
+  DEFAULT_SOURCE,
+  DEFAULT_YOUTUBE_SOURCE,
+  MIXCLOUD_SOURCE_IDS,
+  MUX_SOURCE_IDS,
+  NON_DASH_SOURCE_IDS,
+  PLAYERJS_SOURCE_IDS,
+  SOUNDCLOUD_SOURCE_IDS,
+  SOURCE_IDS,
+  SOURCES,
+  YOUTUBE_SOURCE_IDS,
+} from '../shared/sources';
+
+const templatesDir = resolve(import.meta.dirname, '../../templates');
+
+describe('MEDIA', () => {
+  it('has an html and a react template for every media', () => {
+    for (const id of MEDIA_IDS) {
+      expect(existsSync(resolve(templatesDir, `html-${id}/main.ts`)), `html-${id}`).toBe(true);
+      expect(existsSync(resolve(templatesDir, `react-${id}/main.tsx`)), `react-${id}`).toBe(true);
+    }
+  });
+
+  it('describes every html and react template', () => {
+    const pages = readdirSync(templatesDir)
+      .filter((name) => /^(?:html|react)-/.test(name))
+      .map((name) => name.replace(/^(?:html|react)-/, ''));
+
+    expect(new Set(pages)).toEqual(new Set(MEDIA_IDS));
+  });
+
+  it('fixes the source for the embeds other than YouTube, player.js, SoundCloud, Mixcloud, and Dailymotion and the native background video only', () => {
+    const fixed = MEDIA_IDS.filter((id) => MEDIA[id].fixedSource !== undefined);
+    const embeds = MEDIA_IDS.filter((id) => MEDIA[id].embed);
+    const picked = ['youtube-video', 'playerjs-video', 'soundcloud-audio', 'mixcloud-audio', 'dailymotion-video'];
+
+    // player.js is a protocol many providers speak, so its embed picks between their pages instead, and SoundCloud
+    // and Mixcloud between the URL shapes and layouts their adapters handle differently. Dailymotion picks between
+    // player configurations and URL parameters.
+    expect(fixed).toEqual(['background-video', ...embeds.filter((id) => !picked.includes(id))]);
+    expect(embeds).toEqual([
+      'vimeo-video',
+      'youtube-video',
+      'cloudflare-video',
+      'playerjs-video',
+      'soundcloud-audio',
+      'mixcloud-audio',
+      'spotify-audio',
+      'tiktok-video',
+      'twitch-video',
+      'dailymotion-video',
+      'wistia-video',
+    ]);
+  });
+
+  it('lands the SPF background media on the 4K ladder and falls dash.js back to a DASH manifest', () => {
+    expect(MEDIA['hls-background-video'].entrySource).toBe(DEFAULT_BACKGROUND_SOURCE);
+    expect(MEDIA['mux-background-video'].entrySource).toBe(DEFAULT_BACKGROUND_SOURCE);
+    expect(MEDIA['dash-video'].fallbackSource).toBe(DEFAULT_DASH_SOURCE);
+    expect(MEDIA['youtube-video'].fallbackSource).toBe(DEFAULT_YOUTUBE_SOURCE);
+    expect(MEDIA_IDS.filter((id) => MEDIA[id].fallbackSource)).toEqual([
+      'dash-video',
+      'youtube-video',
+      'playerjs-video',
+      'soundcloud-audio',
+      'mixcloud-audio',
+      'dailymotion-video',
+    ]);
+  });
+
+  it('lands the player.js embed on one of its provider pages, whichever source was showing', () => {
+    expect(MEDIA['playerjs-video'].entrySource).toBe(DEFAULT_PLAYERJS_SOURCE);
+    expect(MEDIA['playerjs-video'].fallbackSource).toBe(DEFAULT_PLAYERJS_SOURCE);
+  });
+
+  it('offers the SoundCloud embed its own URLs, and nothing else those URLs', () => {
+    expect(MEDIA['soundcloud-audio'].entrySource).toBe(DEFAULT_SOUNDCLOUD_SOURCE);
+    expect(SOUNDCLOUD_SOURCE_IDS).toContain(DEFAULT_SOUNDCLOUD_SOURCE);
+
+    for (const platform of ['html', 'react', 'cdn'] as const) {
+      expect(mediaSources('soundcloud-audio', platform)).toEqual(SOUNDCLOUD_SOURCE_IDS);
+    }
+
+    for (const media of MEDIA_IDS.filter((id) => id !== 'soundcloud-audio')) {
+      for (const id of SOUNDCLOUD_SOURCE_IDS) expect(mediaSources(media, 'html'), media).not.toContain(id);
+    }
+  });
+
+  it('offers the Mixcloud embed its own URLs, and nothing else those URLs', () => {
+    expect(MEDIA['mixcloud-audio'].entrySource).toBe(DEFAULT_MIXCLOUD_SOURCE);
+    expect(MIXCLOUD_SOURCE_IDS).toContain(DEFAULT_MIXCLOUD_SOURCE);
+
+    for (const platform of ['html', 'react', 'cdn'] as const) {
+      expect(mediaSources('mixcloud-audio', platform)).toEqual(MIXCLOUD_SOURCE_IDS);
+    }
+
+    for (const media of MEDIA_IDS.filter((id) => id !== 'mixcloud-audio')) {
+      for (const id of MIXCLOUD_SOURCE_IDS) expect(mediaSources(media, 'html'), media).not.toContain(id);
+    }
+  });
+
+  it('lands the Dailymotion embed on its default player configuration, whichever source was showing', () => {
+    expect(MEDIA['dailymotion-video'].entrySource).toBe(DEFAULT_DAILYMOTION_SOURCE);
+    expect(MEDIA['dailymotion-video'].fallbackSource).toBe(DEFAULT_DAILYMOTION_SOURCE);
+  });
+
+  it('labels what the SPF engines do with protected and MPEG-TS sources', () => {
+    const protectedSource = SOURCES['mux-drm'];
+    const transportStream = SOURCES['hls-1'];
+    const cmaf = SOURCES['hls-4k'];
+
+    expect(protectedSource.drm).toBe(true);
+    expect(transportStream.subType).toBe('ts');
+    expect(MEDIA['hls-video'].outcome?.(protectedSource)).toBe('plays where the browser has the CDM');
+    expect(MEDIA['hls-audio'].outcome?.(protectedSource)).toBe('plays if its audio is clear');
+    expect(MEDIA['hls-video'].outcome?.(transportStream)).toBe('expects unsupported-format error');
+    expect(MEDIA['hls-audio'].outcome?.(transportStream)).toBe('expects no playback');
+    expect(MEDIA['hls-background-video'].outcome?.(transportStream)).toBe('expects unsupported-format error');
+    expect(MEDIA['hls-background-video'].outcome?.(cmaf)).toBeUndefined();
+    expect(MEDIA['mux-video-spf'].outcome).toBeUndefined();
+  });
+});
+
+describe('mediaSources', () => {
+  it('offers the SPF engines HLS sources and the empty source only', () => {
+    for (const media of ['hls-video', 'hls-audio', 'hls-background-video'] as const) {
+      const sources = mediaSources(media, 'html');
+
+      expect(sources).toContain('none');
+      expect(sources).toContain('hls-1');
+      expect(sources).toContain('hls-4k');
+      expect(sources).not.toContain('mp4-1');
+      expect(sources).not.toContain('mux-drm');
+
+      for (const id of sources) expect(['hls', 'none']).toContain(SOURCES[id].type);
+    }
+  });
+
+  it('keeps structured sources off the CDN page', () => {
+    expect(mediaSources('mux-video', 'html')).toEqual(MUX_SOURCE_IDS);
+    expect(mediaSources('mux-video', 'cdn')).toEqual(NON_DASH_SOURCE_IDS);
+    expect(mediaSources('hlsjs-video', 'html')).toContain('hls-drm');
+    expect(mediaSources('hlsjs-video', 'cdn')).not.toContain('hls-drm');
+  });
+
+  it('offers YouTube page URLs to the YouTube media only, minus player parameters on the CDN page', () => {
+    expect(mediaSources('youtube-video', 'react')).toEqual(YOUTUBE_SOURCE_IDS);
+    expect(mediaSources('youtube-video', 'cdn')).not.toContain('youtube-captions-on');
+    expect(mediaSources('youtube-video', 'cdn')).toContain('youtube-captions');
+
+    for (const media of MEDIA_IDS.filter((id) => id !== 'youtube-video')) {
+      for (const platform of ['html', 'cdn'] as const) {
+        expect(
+          mediaSources(media, platform).some((id) => SOURCES[id].type === 'youtube'),
+          media
+        ).toBe(false);
+      }
+    }
+  });
+
+  it('offers the player.js embed its provider pages, and nothing else those pages', () => {
+    expect(PLAYERJS_SOURCE_IDS).toEqual([
+      'playerjs-mux',
+      'playerjs-gumlet',
+      'playerjs-framerate',
+      'playerjs-livid',
+      'playerjs-bunny',
+      'playerjs-streamable',
+    ]);
+
+    for (const platform of ['html', 'react', 'cdn'] as const) {
+      expect(mediaSources('playerjs-video', platform)).toEqual(PLAYERJS_SOURCE_IDS);
+    }
+
+    for (const media of MEDIA_IDS.filter((id) => id !== 'playerjs-video')) {
+      for (const id of PLAYERJS_SOURCE_IDS) expect(mediaSources(media, 'html'), media).not.toContain(id);
+    }
+  });
+
+  it('offers the Dailymotion embed its player embed URLs, and nothing else those URLs', () => {
+    expect(DAILYMOTION_SOURCE_IDS).toEqual([
+      'dailymotion-default',
+      'dailymotion-no-autostart',
+      'dailymotion-start-time',
+      'dailymotion-scale-fill',
+    ]);
+
+    for (const platform of ['html', 'react', 'cdn'] as const) {
+      expect(mediaSources('dailymotion-video', platform)).toEqual(DAILYMOTION_SOURCE_IDS);
+    }
+
+    for (const media of MEDIA_IDS.filter((id) => id !== 'dailymotion-video')) {
+      for (const id of DAILYMOTION_SOURCE_IDS) expect(mediaSources(media, 'html'), media).not.toContain(id);
+    }
+  });
+
+  it('narrows dash.js to DASH manifests and lets the audio player take anything', () => {
+    expect(mediaSources('dash-video', 'react')).toEqual(DASH_SOURCE_IDS);
+    expect(mediaSources('audio', 'react')).toEqual(SOURCE_IDS);
+    expect(mediaSources('video', 'react')).toEqual(NON_DASH_SOURCE_IDS);
+  });
+});
+
+describe('landingSource', () => {
+  it('keeps an offered source and otherwise lands on the entry or fallback source', () => {
+    expect(landingSource('youtube-video', 'html', 'hls-1')).toBe(DEFAULT_YOUTUBE_SOURCE);
+    expect(landingSource('youtube-video', 'html', 'youtube-short')).toBe('youtube-short');
+    expect(landingSource('youtube-video', 'cdn', 'youtube-captions-on')).toBe(DEFAULT_YOUTUBE_SOURCE);
+    expect(landingSource('video', 'html', 'youtube-short')).toBe(DEFAULT_SOURCE);
+    expect(landingSource('video', 'html', 'hls-2')).toBe('hls-2');
+    expect(landingSource('hls-background-video', 'html', 'hls-2')).toBe(DEFAULT_BACKGROUND_SOURCE);
+  });
+});
+
+describe('hasTailwindSkin', () => {
+  it('is available for the skinned players outside the CDN page', () => {
+    expect(hasTailwindSkin('video', 'html')).toBe(true);
+    expect(hasTailwindSkin('mux-audio', 'react')).toBe(true);
+    expect(hasTailwindSkin('video', 'cdn')).toBe(false);
+    expect(hasTailwindSkin('background-video', 'html')).toBe(false);
+    expect(hasTailwindSkin('hls-background-video', 'html')).toBe(false);
+    expect(hasTailwindSkin('vimeo-video', 'html')).toBe(false);
+  });
+});
+
+describe('hasSkinChoice', () => {
+  it('leaves only the background media without one', () => {
+    expect(MEDIA_IDS.filter((id) => !hasSkinChoice(id))).toEqual([
+      'background-video',
+      'hls-background-video',
+      'mux-background-video',
+    ]);
+  });
+});
+
+describe('hasNoSkinChoice', () => {
+  it('leaves out the background and native audio media', () => {
+    expect(MEDIA_IDS.filter((id) => !hasNoSkinChoice(id))).toEqual([
+      'mux-audio',
+      'mux-audio-spf',
+      'hls-audio',
+      'audio',
+      'background-video',
+      'hls-background-video',
+      'mux-background-video',
+    ]);
+  });
+});

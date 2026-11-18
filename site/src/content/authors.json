@@ -1,0 +1,39 @@
+[
+  {
+    "id": "steve-heffernan",
+    "name": "Steve Heffernan",
+    "shortName": "Steve",
+    "avatar": "https://github.com/heff.png",
+    "socialLinks": {
+      "github": "https://github.com/heff"
+    }
+  },
+  {
+    "id": "darius-cepulis",
+    "name": "Darius Cepulis",
+    "shortName": "Darius",
+    "bio": "Thinks the web is pretty neat",
+    "avatar": "https://github.com/decepulis.png",
+    "socialLinks": {
+      "github": "https://github.com/decepulis",
+      "linkedin": "https://www.linkedin.com/in/decepulis/",
+      "website": "https://darius.cool",
+      "x": "https://x.com/darius_cepulis",
+      "bluesky": "https://bsky.app/profile/darius.cool"
+    }
+  },
+  {
+    "id": "sam-potts",
+    "name": "Sam Potts",
+    "shortName": "Sam",
+    "bio": "Probably tweaking CSS somewhere",
+    "avatar": "https://avatars.githubusercontent.com/sampotts",
+    "socialLinks": {
+      "github": "https://github.com/sampotts",
+      "linkedin": "https://www.linkedin.com/in/sampotts/",
+      "website": "https://sampotts.dev",
+      "x": "https://x.com/sam_potts",
+      "bluesky": "https://bsky.app/profile/sampotts.dev"
+    }
+  }
+]
