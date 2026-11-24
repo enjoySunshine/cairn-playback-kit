@@ -1,0 +1,16 @@
+{
+  "name": "review-player-e2e",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "审片播放器无头 Chromium 端到端测试与截图",
+  "scripts": {
+    "test": "node e2e.mjs",
+    "frames": "node frames.mjs",
+    "pages": "node pages.mjs"
+  },
+  "license": "Apache-2.0",
+  "dependencies": {
+    "playwright-core": "^1.65.1"
+  }
+}

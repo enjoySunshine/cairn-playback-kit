@@ -1,0 +1,30 @@
+import { chromium } from 'playwright-core';
+import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { extname, join, normalize } from 'node:path';
+const root = '/workspace';
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css', '.mp4': 'video/mp4' };
+const server = createServer(async (req, res) => {
+  const p = normalize(join(root, decodeURIComponent(new URL(req.url, 'http://x').pathname)));
+  let buf;
+  try { buf = await readFile(p); } catch { res.writeHead(404); res.end('nf'); return; }
+  res.writeHead(200, { 'Content-Type': MIME[extname(p)] || 'app/octet', 'Accept-Ranges': 'bytes' });
+  res.end(buf);
+});
+await new Promise((r) => server.listen(0, '127.0.0.1', r));
+const base = `http://127.0.0.1:${server.address().port}`;
+const browser = await chromium.launch({ headless: true });
+const ctx = await browser.newContext({ viewport: { width: 1100, height: 720 } });
+const master = await ctx.newPage();
+await master.goto(`${base}/review-player/player.html`);
+await master.waitForFunction(() => document.querySelector('#video').readyState >= 2);
+await master.click('#apply-segment');
+await master.fill('#jump-to', '3.52'); await master.click('#jump-go');
+await master.waitForTimeout(300);
+await master.screenshot({ path: join(root, 'review-player/e2e/shots/page-master.png'), fullPage: true });
+const viewer = await ctx.newPage();
+await viewer.goto(`${base}/review-player/viewer.html`);
+await viewer.waitForTimeout(400);
+await viewer.screenshot({ path: join(root, 'review-player/e2e/shots/page-viewer.png'), fullPage: true });
+console.log('done');
+await browser.close(); server.close();

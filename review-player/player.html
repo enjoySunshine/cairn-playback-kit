@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>审片播放器 · 主控页</title>
+  <link rel="stylesheet" href="./src/style.css">
+</head>
+<body>
+  <h1>审片播放器（主控页）— review/master.mp4</h1>
+  <p class="nav">同套播放器的只读镜像页：<a href="./viewer.html">viewer.html</a>（两个页面同时打开，五行字一致）</p>
+
+  <div class="layout">
+    <!-- 左边：画面，保留原生播放器皮肤、按钮和进度条 -->
+    <div class="stage">
+      <video id="video" controls preload="auto" playsinline
+             width="320" height="180"></video>
+    </div>
+
+    <!-- 右边：五行字 -->
+    <div class="readout">
+      <h2>播放器读数</h2>
+      <div class="row"><span class="name">切片播放头</span><span class="value" data-row="slice-head"></span></div>
+      <div class="row"><span class="name">成片播放头</span><span class="value" data-row="master-head"></span></div>
+      <div class="row"><span class="name">正在亮的成片字幕</span><span class="value" data-row="master-cues"></span></div>
+      <div class="row"><span class="name">正在亮的审片批注</span><span class="value" data-row="note-cues"></span></div>
+      <div class="row"><span class="name">最近亮过的批注</span><span class="value" data-row="recent-notes"></span></div>
+    </div>
+  </div>
+
+  <!-- 控制区 -->
+  <div class="controls" id="controls">
+    <fieldset>
+      <legend>入点 / 出点（成片秒，25fps 自动吸附到帧）</legend>
+      <label>入点 <input id="in-point" type="number" step="0.04" min="0" max="20" value="8.00"></label>
+      <label>出点 <input id="out-point" type="number" step="0.04" min="0" max="20" value="14.00"></label>
+      <button id="apply-segment" type="button">划段（入出点生效）</button>
+      <button id="clear-segment" type="button">取消划段（按整支 20 秒播）</button>
+    </fieldset>
+
+    <fieldset>
+      <legend>倍速与跳转</legend>
+      <label>倍速
+        <select id="rate">
+          <option value="0.5">0.5×</option>
+          <option value="1" selected>1×</option>
+          <option value="2">2×</option>
+          <option value="4">4×</option>
+        </select>
+      </label>
+      <button id="play-pause" type="button">播放 / 暂停</button>
+      <label>跳到切片时间（秒）<input id="jump-to" type="number" step="0.04" min="0" value="3.52"></label>
+      <button id="jump-go" type="button">跳转</button>
+    </fieldset>
+
+    <fieldset>
+      <legend>切片进度条（当前时间与拖动都走切片时间；未划段时禁用，用原生进度条）</legend>
+      <span class="bar-label" id="slice-bar-label">切片进度条</span>
+      <input id="slice-bar" type="range" min="0" max="1000" step="40" value="0" disabled>
+      <p class="hint">
+        审片批注轨按切片时间亮（文件里的 0.00–1.52 等时间不会被改写）；成片字幕轨按成片时间亮。<br>
+        倍速播放到出点即停在出点帧，声音随画面一起停；未划段时倍速保持设定不变，播到 20 秒结尾才停。
+      </p>
+    </fieldset>
+    <span id="role-note"></span>
+  </div>
+
+  <script type="module">
+    import { initMaster } from './src/player.js';
+    initMaster(document);
+  </script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "name": "review-player",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "朴素 HTML 审片播放器：划段、切片/成片双播放头、双轨字幕与跨页面只读镜像",
+  "scripts": {
+    "test": "node --test test/engine.test.js"
+  }
+}

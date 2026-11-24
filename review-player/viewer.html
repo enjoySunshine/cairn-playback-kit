@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>审片播放器 · 只读镜像页</title>
+  <link rel="stylesheet" href="./src/style.css">
+</head>
+<body>
+  <h1>审片播放器（只读镜像页）— review/master.mp4</h1>
+  <p class="nav">同套播放器的主控页：<a href="./player.html">player.html</a>（本页只读播放器给出的时间和字幕，不发任何控制指令）</p>
+
+  <div class="layout">
+    <!-- 左边：画面（同一套播放器皮肤，仅静音跟随） -->
+    <div class="stage">
+      <video id="video" controls preload="auto" playsinline
+             width="320" height="180" muted></video>
+    </div>
+
+    <!-- 右边：同样的五行字 -->
+    <div class="readout">
+      <h2>播放器读数（镜像）</h2>
+      <div class="row"><span class="name">切片播放头</span><span class="value" data-row="slice-head"></span></div>
+      <div class="row"><span class="name">成片播放头</span><span class="value" data-row="master-head"></span></div>
+      <div class="row"><span class="name">正在亮的成片字幕</span><span class="value" data-row="master-cues"></span></div>
+      <div class="row"><span class="name">正在亮的审片批注</span><span class="value" data-row="note-cues"></span></div>
+      <div class="row"><span class="name">最近亮过的批注</span><span class="value" data-row="recent-notes"></span></div>
+    </div>
+  </div>
+
+  <!-- 与主控页相同的控制区，但本页整体禁用 -->
+  <div class="controls" id="controls">
+    <fieldset>
+      <legend>入点 / 出点（只读）</legend>
+      <label>入点 <input id="in-point" type="number" step="0.04" min="0" max="20" value="8.00" disabled></label>
+      <label>出点 <input id="out-point" type="number" step="0.04" min="0" max="20" value="14.00" disabled></label>
+      <button id="apply-segment" type="button" disabled>划段</button>
+      <button id="clear-segment" type="button" disabled>取消划段</button>
+    </fieldset>
+
+    <fieldset>
+      <legend>倍速与跳转（只读）</legend>
+      <label>倍速
+        <select id="rate" disabled>
+          <option value="0.5">0.5×</option>
+          <option value="1" selected>1×</option>
+          <option value="2">2×</option>
+          <option value="4">4×</option>
+        </select>
+      </label>
+      <button id="play-pause" type="button" disabled>播放 / 暂停</button>
+      <label>跳到切片时间（秒）<input id="jump-to" type="number" step="0.04" min="0" value="3.52" disabled></label>
+      <button id="jump-go" type="button" disabled>跳转</button>
+    </fieldset>
+
+    <fieldset>
+      <legend>切片进度条（只读）</legend>
+      <span class="bar-label" id="slice-bar-label">切片进度条</span>
+      <input id="slice-bar" type="range" min="0" max="1000" step="40" value="0" disabled>
+    </fieldset>
+    <span id="role-note"></span>
+  </div>
+
+  <script type="module">
+    import { initViewer } from './src/player.js';
+    initViewer(document);
+  </script>
+</body>
+</html>
